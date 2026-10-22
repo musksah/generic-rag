@@ -1,17 +1,28 @@
 import chromadb
 from langchain_chroma import Chroma
-from langchain_google_vertexai import VertexAIEmbeddings
+from langchain_core.embeddings import Embeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+from packrag import config
+
 
 def chroma_client():
-    return chromadb.HttpClient(host='localhost', port=8000)
+    return chromadb.HttpClient(host=config.CHROMA_HOST, port=config.CHROMA_PORT)
 
 
-def get_retriever():
-    embeddings = VertexAIEmbeddings(model_name="text-embedding-004")
-    vector_store = Chroma(
-        client=chroma_client(),
-        collection_name="test_collection",
-        embedding_function=embeddings
+def get_embeddings() -> Embeddings:
+    return GoogleGenerativeAIEmbeddings(
+        model=config.EMBEDDING_MODEL,
+        vertexai=True,
+        project=config.PROJECT_ID,
+        location=config.LOCATION,
     )
-    # Set Chroma as the Retriever
-    return vector_store.as_retriever()
+
+
+def get_vector_store(client=None, embeddings: Embeddings | None = None) -> Chroma:
+    # client and embeddings are injectable so tests can run without Chroma or Vertex AI
+    return Chroma(
+        client=client or chroma_client(),
+        collection_name=config.COLLECTION_NAME,
+        embedding_function=embeddings or get_embeddings(),
+    )
