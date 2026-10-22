@@ -17,6 +17,11 @@ env3.*
 docs_build
 site_build
 venv
+.venv
+.env
+chroma_data*/
+.chroma*/
+.flashrank_cache/
 docs.zip
 archive.zip
 

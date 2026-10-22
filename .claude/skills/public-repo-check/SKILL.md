@@ -18,14 +18,14 @@ Look for:
 - **Credentials:** Google API keys `AIza...`, service-account JSON
   (`"type": "service_account"`, `private_key`), OpenAI `sk-...`, `.env` files,
   connection strings with passwords
-- **Local data:** `chroma_data*/` directories, `*.sqlite3`, notebook outputs, logs.
-  Suggest adding them to `.gitignore` (it doesn't cover `chroma_data` yet).
+- **Local data:** `chroma_data*/` and `.chroma*/` directories, `*.sqlite3`,
+  notebook outputs, logs. `.gitignore` covers the Chroma dirs, `.venv` and `.env`.
+  Flag anything similar that slips through.
 - **Documents:** anything new under `documents/`. Ask the user whether it is
   public or licensed for redistribution. The State of the Union text is public domain.
 - **Personal data:** emails, phone numbers and ID numbers in sample data or fixtures
 
-The GCP project id in `main.py` is not a secret, but recommend moving it to an
-env var.
+Project ids belong in `GOOGLE_CLOUD_PROJECT`, not in code. Flag any that get hardcoded.
 
 Report findings by severity with file and line. Show only the first 4
 characters of any secret. For a real credential, tell the user to rotate it

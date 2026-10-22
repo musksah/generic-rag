@@ -1,25 +1,51 @@
+from functools import lru_cache
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-import vertexai
-import packrag.ragchain as ragmodule
-import packrag.chromap as chromap
-import packrag.ingest as ingestmodule
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import FlashrankRerank
-from langchain_google_vertexai import ChatVertexAI
+from flashrank import Ranker
 from langchain_core.prompts import PromptTemplate
-from flashrank import Ranker 
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 
-CHROMA_PORT = 8000
-PROJECT_ID = "master-ia-404704"
-LOCATION = "us-central1"
+import packrag.chromap as chromap
+import packrag.config as config
+import packrag.ingest as ingestmodule
+import packrag.ragchain as ragmodule
+
+PROMPT_TEMPLATE = """Use the context provided to answer the user's question below. If you do not know the answer based on the context provided, tell the user that you do not know the answer to their question based on the context provided and that you are sorry.
+context: {context}
+
+question: {query}
+
+answer: """
+
 
 class Message(BaseModel):
     question: str
 
-vertexai.init(project=PROJECT_ID, location=LOCATION)
+
 app = FastAPI()
+
+
+# Built on first request, so importing the app needs neither Chroma nor Vertex AI
+@lru_cache
+def get_chain() -> ragmodule.RAGChain:
+    llm = ChatGoogleGenerativeAI(
+        model=config.LLM_MODEL,
+        temperature=0.2,
+        vertexai=True,
+        project=config.PROJECT_ID,
+        location=config.LOCATION,
+    )
+    retriever = chromap.get_vector_store().as_retriever(search_kwargs={"k": config.RETRIEVAL_K})
+    return ragmodule.RAGChain(
+        llm,
+        retriever,
+        PromptTemplate.from_template(PROMPT_TEMPLATE),
+        ranker=Ranker(model_name=config.RERANK_MODEL),
+        top_n=config.RERANK_TOP_N,
+    )
+
 
 @app.get("/")
 async def root():
@@ -28,45 +54,17 @@ async def root():
 
 @app.get("/health_chroma")
 async def test_conection_chroma():
-    chromap.chroma_client()
+    chromap.chroma_client().heartbeat()
     return JSONResponse({"status": "success", "message": "Chroma is connected"})
 
 
-ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
-
-# Flash Rerank Compressor for Post-retrieval Rerank
-compressor = FlashrankRerank()
-
-# Update Retriever -> Compression Retriever
-compression_retriever = ContextualCompressionRetriever(
-    base_compressor=compressor, base_retriever=chromap.get_retriever()
-)
-
 @app.post("/ingest/")
-async def ingest():
-    ingestmodule.ingest_data()
-    return JSONResponse({"message": "Information updated"})
+def ingest():
+    chunks = ingestmodule.ingest_data(chromap.get_vector_store())
+    return JSONResponse({"message": "Information updated", "chunks": chunks})
+
 
 @app.post("/chat/")
-async def query(message: Message):
-    # Create the Prompt Template
-    prompt_template = """Use the context provided to answer the user's question below. If you do not know the answer based on the context provided, tell the user that you do not know the answer to their question based on the context provided and that you are sorry.
-    context: {context}
-
-    question: {query}
-
-    answer: """
-
-    # Create Prompt Instance from template
-    custom_rag_prompt = PromptTemplate.from_template(prompt_template)
-    llm = ChatVertexAI(
-        model="gemini-1.5-flash-001",
-        temperature=0.2)
-    # Initialize Custom RAG Chain
-    rag_chain = ragmodule.RAGChain(llm, compression_retriever, custom_rag_prompt)
-
-    # Invoke the chain
-    response = rag_chain.invoke(message.question)
-
-    # Print Output
-    return {"answer": response.content}
+def query(message: Message):
+    response = get_chain().invoke(message.question)
+    return {"answer": response.text}
